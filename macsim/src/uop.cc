@@ -1,0 +1,756 @@
+/*
+Copyright (c) <2012>, <Georgia Institute of Technology> All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are permitted
+provided that the following conditions are met:
+
+Redistributions of source code must retain the above copyright notice, this list of conditions
+and the following disclaimer.
+
+Redistributions in binary form must reproduce the above copyright notice, this list of
+conditions and the following disclaimer in the documentation and/or other materials provided
+with the distribution.
+
+Neither the name of the <Georgia Institue of Technology> nor the names of its contributors
+may be used to endorse or promote products derived from this software without specific prior
+written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
+*/
+
+/**********************************************************************************************
+ * File         : uop.cc
+ * Author       : Hyesoon Kim
+ * Date         : 12/16/2007
+ * SVN          : $Id: uop.h 867 2009-11-05 02:28:12Z kacear $:
+ * Description  : uop structure
+ *********************************************************************************************/
+
+#include "uop.h"
+#include "knob.h"
+#include "all_knobs.h"
+#include "global_defs.h"
+#include "global_types.h"
+#include "debug_macros.h"
+#include "map.h"
+#include "core.h"
+
+// uop memory type string
+const char *uop_c::g_mem_type_name[NUM_MEM_TYPES] = {
+  "NOT",   "LD",         "ST",        "PF",        "WH",
+  "EVICT", "SWPREF_NTA", "SWPREF_T0", "SWPREF_T1", "SWPREF_T2",
+  "LD_LM", "LD_SM",      "LD_GM",     "ST_LM",     "ST_SM",
+  "ST_GM", "LD_CM",      "LD_TM",     "LD_PM",
+};
+
+// uop state string
+const char *uop_c::g_uop_state_name[NUM_OP_STATES] = {
+  "OS_INVALID",
+  "OS_FETCHED",
+  "OS_ISSUED",
+  "OS_SCHEDULED",
+  "OS_MISS",
+  "OS_WAIT_MEM",
+  "OS_DONE",
+  "OS_ALLOCATE",
+  "OS_EXEC",
+  "OS_MERGED",
+  "OS_SCHEDULE",
+  "OS_SCHEDULE_DONE",
+  "OS_DCACHE_BEGIN",
+  "OS_DCACHE_HIT",
+  "OS_DCACHE_ACCESS",
+  "OS_DCACHE_PORT_UNAVAILABLE",
+  "OS_DCACHE_MEM_ACCESS_DENIED",
+  "OS_EXEC_BEGIN",
+  "OS_TRANS_BEGIN",
+  "OS_TRANS_WALK_QUEUE",
+  "OS_TRANS_RETRY_QUEUE",
+  "OS_TRANS_FAULT_RETRY_QUEUE",
+  "OS_TRANS_FAULT_BUFFER",
+  "OS_TRANS_DONE",
+};
+
+// branch type string
+const char *uop_c::g_cf_type_name[NUM_CF_TYPES] = {
+  "NOT_CF",   "CF_BR",  "CF_CBR", "CF_CALL", "CF_IBR",
+  "CF_ICALL", "CF_ICO", "CF_RET", "CF_MITE",
+};
+
+// uop dependence type string
+const char *uop_c::g_dep_type_name[NUM_DEP_TYPES] = {
+  "REG_DATA_DEP",
+  "MEM_ADDR_DEP",
+  "MEM_DATA_DEP",
+  "PREV_UOP_DEP",
+};
+
+// uop type string
+const char *uop_c::g_uop_type_name[NUM_UOP_TYPES] = {
+  "UOP_INV",
+  "UOP_SPEC",
+  "UOP_NOP",
+  "UOP_CF",
+  "UOP_CMOV",
+  "UOP_LDA",
+  "UOP_IMEM",
+  "UOP_IADD",
+  "UOP_IMUL",
+  "UOP_IDIV",  // NEW
+  "UOP_ICMP",
+  "UOP_LOGIC",
+  "UOP_SHIFT",
+  "UOP_BYTE",
+  "UOP_MM",
+  "UOP_VADD",  // NEW
+  "UOP_VSTR",  // NEW
+  "UOP_VFADD",  // NEW
+  "UOP_LFENCE",
+  "UOP_FULL_FENCE",
+  "UOP_ACQ_FENCE",
+  "UOP_REL_FENCE",
+  "UOP_FMEM",
+  "UOP_FCF",
+  "UOP_FCVT",
+  "UOP_FADD",
+  "UOP_FMUL",
+  "UOP_FDIV",
+  "UOP_FCMP",
+  "UOP_FBIT",
+  "UOP_FCMOV",
+  "UOP_LD",
+  "UOP_ST",
+  "UOP_SSE",
+  "UOP_SIMD",
+  "UOP_AES",  // NEW
+  "UOP_PCLMUL",  // NEW
+  "UOP_X87",  // NEW
+  "UOP_XSAVE",  // NEW
+  "UOP_XSAVEOPT",  // NEW
+
+  "UOP_GPU_ABS",
+  "UOP_GPU_ABS64",
+  "UOP_GPU_ADD",
+  "UOP_GPU_ADD64",
+  "UOP_GPU_ADDC",
+  "UOP_GPU_AND",
+  "UOP_GPU_AND64",
+  "UOP_GPU_ATOM",
+  "UOP_GPU_ATOM64",
+  "UOP_GPU_BAR",
+  "UOP_GPU_BFE",
+  "UOP_GPU_BFE64",
+  "UOP_GPU_BFI",
+  "UOP_GPU_BFI64",
+  "UOP_GPU_BFIND",
+  "UOP_GPU_BFIND64",
+  "UOP_GPU_BRA",
+  "UOP_GPU_BREV",
+  "UOP_GPU_BREV64",
+  "UOP_GPU_BRKPT",
+  "UOP_GPU_CALL",
+  "UOP_GPU_CLZ",
+  "UOP_GPU_CLZ64",
+  "UOP_GPU_CNOT",
+  "UOP_GPU_CNOT64",
+  "UOP_GPU_COPYSIGN",
+  "UOP_GPU_COPYSIGN64",
+  "UOP_GPU_COS",
+  "UOP_GPU_CVT",
+  "UOP_GPU_CVT64",
+  "UOP_GPU_CVTA",
+  "UOP_GPU_CVTA64",
+  "UOP_GPU_DIV",
+  "UOP_GPU_DIV64",
+  "UOP_GPU_EX2",
+  "UOP_GPU_EXIT",
+  "UOP_GPU_FMA",
+  "UOP_GPU_FMA64",
+  "UOP_GPU_ISSPACEP",
+  "UOP_GPU_LD",
+  "UOP_GPU_LD64",
+  "UOP_GPU_LDU",
+  "UOP_GPU_LDU64",
+  "UOP_GPU_LG2",
+  "UOP_GPU_MAD24",
+  "UOP_GPU_MAD",
+  "UOP_GPU_MAD64",
+  "UOP_GPU_MADC",
+  "UOP_GPU_MADC64",
+  "UOP_GPU_MAX",
+  "UOP_GPU_MAX64",
+  "UOP_GPU_MEMBAR",
+  "UOP_GPU_MIN",
+  "UOP_GPU_MIN64",
+  "UOP_GPU_MOV",
+  "UOP_GPU_MOV64",
+  "UOP_GPU_MUL24",
+  "UOP_GPU_MUL",
+  "UOP_GPU_MUL64",
+  "UOP_GPU_NEG",
+  "UOP_GPU_NEG64",
+  "UOP_GPU_NOT",
+  "UOP_GPU_NOT64",
+  "UOP_GPU_OR",
+  "UOP_GPU_OR64",
+  "UOP_GPU_PMEVENT",
+  "UOP_GPU_POPC",
+  "UOP_GPU_POPC64",
+  "UOP_GPU_PREFETCH",
+  "UOP_GPU_PREFETCHU",
+  "UOP_GPU_PRMT",
+  "UOP_GPU_RCP",
+  "UOP_GPU_RCP64",
+  "UOP_GPU_RED",
+  "UOP_GPU_RED64",
+  "UOP_GPU_REM",
+  "UOP_GPU_REM64",
+  "UOP_GPU_RET",
+  "UOP_GPU_RSQRT",
+  "UOP_GPU_RSQRT64",
+  "UOP_GPU_SAD",
+  "UOP_GPU_SAD64",
+  "UOP_GPU_SELP",
+  "UOP_GPU_SELP64",
+  "UOP_GPU_SET",
+  "UOP_GPU_SET64",
+  "UOP_GPU_SETP",
+  "UOP_GPU_SETP64",
+  "UOP_GPU_SHFL",
+  "UOP_GPU_SHFL64",
+  "UOP_GPU_SHL",
+  "UOP_GPU_SHL64",
+  "UOP_GPU_SHR",
+  "UOP_GPU_SHR64",
+  "UOP_GPU_SIN",
+  "UOP_GPU_SLCT",
+  "UOP_GPU_SLCT64",
+  "UOP_GPU_SQRT",
+  "UOP_GPU_SQRT64",
+  "UOP_GPU_ST",
+  "UOP_GPU_ST64",
+  "UOP_GPU_SUB",
+  "UOP_GPU_SUB64",
+  "UOP_GPU_SUBC",
+  "UOP_GPU_SULD",
+  "UOP_GPU_SULD64",
+  "UOP_GPU_SURED",
+  "UOP_GPU_SURED64",
+  "UOP_GPU_SUST",
+  "UOP_GPU_SUST64",
+  "UOP_GPU_SUQ",
+  "UOP_GPU_TESTP",
+  "UOP_GPU_TESTP64",
+  "UOP_GPU_TEX",
+  "UOP_GPU_TLD4",
+  "UOP_GPU_TXQ",
+  "UOP_GPU_TRAP",
+  "UOP_GPU_VABSDIFF",
+  "UOP_GPU_VADD",
+  "UOP_GPU_VMAD",
+  "UOP_GPU_VMAX",
+  "UOP_GPU_VMIN",
+  "UOP_GPU_VSET",
+  "UOP_GPU_VSHL",
+  "UOP_GPU_VSHR",
+  "UOP_GPU_VSUB",
+  "UOP_GPU_VOTE",
+  "UOP_GPU_XOR",
+  "UOP_GPU_XOR64",
+  "UOP_GPU_RECONVERGE",
+  "UOP_GPU_PHI",
+
+  "UOP_GPU_FABS",
+  "UOP_GPU_FABS64",
+  "UOP_GPU_FADD",
+  "UOP_GPU_FADD64",
+  "UOP_GPU_FADDC",
+  "UOP_GPU_FAND",
+  "UOP_GPU_FAND64",
+  "UOP_GPU_FATOM",
+  "UOP_GPU_FATOM64",
+  "UOP_GPU_FBAR",
+  "UOP_GPU_FBFE",
+  "UOP_GPU_FBFE64",
+  "UOP_GPU_FBFI",
+  "UOP_GPU_FBFI64",
+  "UOP_GPU_FBFIND",
+  "UOP_GPU_FBFIND64",
+  "UOP_GPU_FBRA",
+  "UOP_GPU_FBREV",
+  "UOP_GPU_FBREV64",
+  "UOP_GPU_FBRKPT",
+  "UOP_GPU_FCALL",
+  "UOP_GPU_FCLZ",
+  "UOP_GPU_FCLZ64",
+  "UOP_GPU_FCNOT",
+  "UOP_GPU_FCNOT64",
+  "UOP_GPU_FCOPYSIGN",
+  "UOP_GPU_FCOPYSIGN64",
+  "UOP_GPU_FCOS",
+  "UOP_GPU_FCVT",
+  "UOP_GPU_FCVT64",
+  "UOP_GPU_FCVTA",
+  "UOP_GPU_FCVTA64",
+  "UOP_GPU_FDIV",
+  "UOP_GPU_FDIV64",
+  "UOP_GPU_FEX2",
+  "UOP_GPU_FEXIT",
+  "UOP_GPU_FFMA",
+  "UOP_GPU_FFMA64",
+  "UOP_GPU_FISSPACEP",
+  "UOP_GPU_FLD",
+  "UOP_GPU_FLD64",
+  "UOP_GPU_FLDU",
+  "UOP_GPU_FLDU64",
+  "UOP_GPU_FLG2",
+  "UOP_GPU_FMAD24",
+  "UOP_GPU_FMAD",
+  "UOP_GPU_FMAD64",
+  "UOP_GPU_FMAX",
+  "UOP_GPU_FMAX64",
+  "UOP_GPU_FMEMBAR",
+  "UOP_GPU_FMIN",
+  "UOP_GPU_FMIN64",
+  "UOP_GPU_FMOV",
+  "UOP_GPU_FMOV64",
+  "UOP_GPU_FMUL24",
+  "UOP_GPU_FMUL",
+  "UOP_GPU_FMUL64",
+  "UOP_GPU_FNEG",
+  "UOP_GPU_FNEG64",
+  "UOP_GPU_FNOT",
+  "UOP_GPU_FNOT64",
+  "UOP_GPU_FOR",
+  "UOP_GPU_FOR64",
+  "UOP_GPU_FPMEVENT",
+  "UOP_GPU_FPOPC",
+  "UOP_GPU_FPOPC64",
+  "UOP_GPU_FPREFETCH",
+  "UOP_GPU_FPREFETCHU",
+  "UOP_GPU_FPRMT",
+  "UOP_GPU_FRCP",
+  "UOP_GPU_FRCP64",
+  "UOP_GPU_FRED",
+  "UOP_GPU_FRED64",
+  "UOP_GPU_FREM",
+  "UOP_GPU_FREM64",
+  "UOP_GPU_FRET",
+  "UOP_GPU_FRSQRT",
+  "UOP_GPU_FRSQRT64",
+  "UOP_GPU_FSAD",
+  "UOP_GPU_FSAD64",
+  "UOP_GPU_FSELP",
+  "UOP_GPU_FSELP64",
+  "UOP_GPU_FSET",
+  "UOP_GPU_FSET64",
+  "UOP_GPU_FSETP",
+  "UOP_GPU_FSETP64",
+  "UOP_GPU_FSHL",
+  "UOP_GPU_FSHL64",
+  "UOP_GPU_FSHR",
+  "UOP_GPU_FSHR64",
+  "UOP_GPU_FSIN",
+  "UOP_GPU_FSLCT",
+  "UOP_GPU_FSLCT64",
+  "UOP_GPU_FSQRT",
+  "UOP_GPU_FSQRT64",
+  "UOP_GPU_FST",
+  "UOP_GPU_FST64",
+  "UOP_GPU_FSUB",
+  "UOP_GPU_FSUB64",
+  "UOP_GPU_FSUBC",
+  "UOP_GPU_FSULD",
+  "UOP_GPU_FSULD64",
+  "UOP_GPU_FSURED",
+  "UOP_GPU_FSURED64",
+  "UOP_GPU_FSUST",
+  "UOP_GPU_FSUST64",
+  "UOP_GPU_FSUQ",
+  "UOP_GPU_FTESTP",
+  "UOP_GPU_FTESTP64",
+  "UOP_GPU_FTEX",
+  "UOP_GPU_FTLD4",
+  "UOP_GPU_FTXQ",
+  "UOP_GPU_FTRAP",
+  "UOP_GPU_FVABSDIFF",
+  "UOP_GPU_FVADD",
+  "UOP_GPU_FVMAD",
+  "UOP_GPU_FVMAX",
+  "UOP_GPU_FVMIN",
+  "UOP_GPU_FVSET",
+  "UOP_GPU_FVSHL",
+  "UOP_GPU_FVSHR",
+  "UOP_GPU_FVSUB",
+  "UOP_GPU_FVOTE",
+  "UOP_GPU_FXOR",
+  "UOP_GPU_FXOR64",
+  "UOP_GPU_FRECONVERGE",
+  "UOP_GPU_FPHI",
+  "UOP_NVBIT_FADD",
+  "UOP_NVBIT_FADD32I",
+  "UOP_NVBIT_FCHK",
+  "UOP_NVBIT_FFMA32I",
+  "UOP_NVBIT_FFMA",
+  "UOP_NVBIT_FMNMX",
+  "UOP_NVBIT_FMUL",
+  "UOP_NVBIT_FMUL32I",
+  "UOP_NVBIT_FSEL",
+  "UOP_NVBIT_FSET",
+  "UOP_NVBIT_FSETP",
+  "UOP_NVBIT_FSWZADD",
+  "UOP_NVBIT_MUFU",
+  "UOP_NVBIT_HADD2",
+  "UOP_NVBIT_HADD2_32I",
+  "UOP_NVBIT_HFMA2",
+  "UOP_NVBIT_HFMA2_32I",
+  "UOP_NVBIT_HMMA",
+  "UOP_NVBIT_HMUL2",
+  "UOP_NVBIT_HMUL2_32I",
+  "UOP_NVBIT_HSET2",
+  "UOP_NVBIT_HSETP2",
+  "UOP_NVBIT_DADD",
+  "UOP_NVBIT_DFMA",
+  "UOP_NVBIT_DMUL",
+  "UOP_NVBIT_DSETP",
+  "UOP_NVBIT_BMMA",
+  "UOP_NVBIT_BMSK",
+  "UOP_NVBIT_BREV",
+  "UOP_NVBIT_FLO",
+  "UOP_NVBIT_IABS",
+  "UOP_NVBIT_IADD",
+  "UOP_NVBIT_IADD3",
+  "UOP_NVBIT_IADD32I",
+  "UOP_NVBIT_IDP",
+  "UOP_NVBIT_IDP4A",
+  "UOP_NVBIT_IMAD",
+  "UOP_NVBIT_IMMA",
+  "UOP_NVBIT_IMNMX",
+  "UOP_NVBIT_IMUL",
+  "UOP_NVBIT_IMUL32I",
+  "UOP_NVBIT_ISCADD",
+  "UOP_NVBIT_ISCADD32I",
+  "UOP_NVBIT_ISETP",
+  "UOP_NVBIT_LEA",
+  "UOP_NVBIT_LOP",
+  "UOP_NVBIT_LOP3",
+  "UOP_NVBIT_LOP32I",
+  "UOP_NVBIT_POPC",
+  "UOP_NVBIT_SHF",
+  "UOP_NVBIT_SHL",
+  "UOP_NVBIT_SHR",
+  "UOP_NVBIT_VABSDIFF",
+  "UOP_NVBIT_VABSDIFF4",
+  "UOP_NVBIT_F2F",
+  "UOP_NVBIT_F2I",
+  "UOP_NVBIT_I2F",
+  "UOP_NVBIT_I2I",
+  "UOP_NVBIT_I2IP",
+  "UOP_NVBIT_FRND",
+  "UOP_NVBIT_MOV",
+  "UOP_NVBIT_MOV32I",
+  "UOP_NVBIT_MOVM",
+  "UOP_NVBIT_PRMT",
+  "UOP_NVBIT_SEL",
+  "UOP_NVBIT_SGXT",
+  "UOP_NVBIT_SHFL",
+  "UOP_NVBIT_PLOP3",
+  "UOP_NVBIT_PSETP",
+  "UOP_NVBIT_P2R",
+  "UOP_NVBIT_R2P",
+  "UOP_NVBIT_LD",
+  "UOP_NVBIT_LDC",
+  "UOP_NVBIT_LDG",
+  "UOP_NVBIT_LDL",
+  "UOP_NVBIT_LDS",
+  "UOP_NVBIT_LDSM",
+  "UOP_NVBIT_ST",
+  "UOP_NVBIT_STG",
+  "UOP_NVBIT_STL",
+  "UOP_NVBIT_STS",
+  "UOP_NVBIT_MATCH",
+  "UOP_NVBIT_QSPC",
+  "UOP_NVBIT_ATOM",
+  "UOP_NVBIT_ATOMS",
+  "UOP_NVBIT_ATOMG",
+  "UOP_NVBIT_RED",
+  "UOP_NVBIT_CCTL",
+  "UOP_NVBIT_CCTLL",
+  "UOP_NVBIT_ERRBAR",
+  "UOP_NVBIT_MEMBAR",
+  "UOP_NVBIT_CCTLT",
+  "UOP_NVBIT_R2UR",
+  "UOP_NVBIT_S2UR",
+  "UOP_NVBIT_UBMSK",
+  "UOP_NVBIT_UBREV",
+  "UOP_NVBIT_UCLEA",
+  "UOP_NVBIT_UFLO",
+  "UOP_NVBIT_UIADD3",
+  "UOP_NVBIT_UIADD3_64",
+  "UOP_NVBIT_UIMAD",
+  "UOP_NVBIT_UISETP",
+  "UOP_NVBIT_ULDC",
+  "UOP_NVBIT_ULEA",
+  "UOP_NVBIT_ULOP",
+  "UOP_NVBIT_ULOP3",
+  "UOP_NVBIT_ULOP32I",
+  "UOP_NVBIT_UMOV",
+  "UOP_NVBIT_UP2UR",
+  "UOP_NVBIT_USEL",
+  "UOP_NVBIT_USGXT",
+  "UOP_NVBIT_USHF",
+  "UOP_NVBIT_USHL",
+  "UOP_NVBIT_USHR",
+  "UOP_NVBIT_VOTEU",
+  "UOP_NVBIT_TEX",
+  "UOP_NVBIT_TLD",
+  "UOP_NVBIT_TLD4",
+  "UOP_NVBIT_TMML",
+  "UOP_NVBIT_TXD",
+  "UOP_NVBIT_TXQ",
+  "UOP_NVBIT_SUATOM",
+  "UOP_NVBIT_SULD",
+  "UOP_NVBIT_SURED",
+  "UOP_NVBIT_SUST",
+  "UOP_NVBIT_BMOV",
+  "UOP_NVBIT_BPT",
+  "UOP_NVBIT_BRA",
+  "UOP_NVBIT_BREAK",
+  "UOP_NVBIT_BRX",
+  "UOP_NVBIT_BRXU",
+  "UOP_NVBIT_BSSY",
+  "UOP_NVBIT_BSYNC",
+  "UOP_NVBIT_CALL",
+  "UOP_NVBIT_EXIT",
+  "UOP_NVBIT_JMP",
+  "UOP_NVBIT_JMX",
+  "UOP_NVBIT_JMXU",
+  "UOP_NVBIT_KILL",
+  "UOP_NVBIT_NANOSLEEP",
+  "UOP_NVBIT_RET",
+  "UOP_NVBIT_RPCMOV",
+  "UOP_NVBIT_RTT",
+  "UOP_NVBIT_WARPSYNC",
+  "UOP_NVBIT_YIELD",
+  "UOP_NVBIT_B2R",
+  "UOP_NVBIT_BAR",
+  "UOP_NVBIT_CS2R",
+  "UOP_NVBIT_DEPBAR",
+  "UOP_NVBIT_GETLMEMBASE",
+  "UOP_NVBIT_LEPC",
+  "UOP_NVBIT_NOP",
+  "UOP_NVBIT_PMTRIG",
+  "UOP_NVBIT_R2B",
+  "UOP_NVBIT_S2R",
+  "UOP_NVBIT_SETCTAID",
+  "UOP_NVBIT_SETLMEMBASE",
+  "UOP_NVBIT_VOTE",
+};
+
+// constructor
+uop_c::uop_c(macsim_c *simBase) {
+  m_simBase = simBase;
+  init();
+  m_valid = false;
+}
+
+uop_c::uop_c() {
+  init();
+  m_valid = false;
+}
+
+// initialize an uop
+void uop_c::init() {
+  for (int ii = 0; ii < MAX_SRCS; ++ii) {
+    m_map_src_info[ii].m_uop = NULL;
+  }
+
+  for (int ii = 0; ii < MAX_DESTS; ++ii) {
+    m_dest_info[ii] = 0;
+  }
+
+  m_uop_num = 0;
+  m_inst_num = 0;
+  m_thread_id = -1;
+  m_unique_thread_id = -1;
+  m_orig_thread_id = -1;
+  m_off_path = 0;
+  m_fetched_cycle = 0;
+  m_bp_cycle = 0;
+  m_alloc_cycle = 0;
+  m_sched_cycle = 0;
+  m_exec_cycle = 0;
+  m_done_cycle = 0;
+  m_mem_start_cycle = 0;
+  m_srcs_not_rdy_vector = 0;
+  m_last_dep_exec = NULL;
+  m_srcs_rdy = 0;
+  m_mem_type = NOT_MEM;
+  m_bogus = false;
+  m_active_mask = 0;
+  m_taken_mask = 0;
+  m_reconverge_addr = 0;
+  m_target_addr = 0;
+  m_uop_info.m_misfetch = false;
+  m_uop_info.m_mispred = false;
+  m_uop_info.m_originally_mispred = false;
+  m_uop_info.m_originally_misfetch = false;
+  m_uop_info.m_btb_miss = false;
+  m_uop_info.m_btb_miss_resolved = false;
+  m_uop_info.m_no_target = false;
+  m_uop_info.m_ibp_miss = false;
+  m_uop_info.m_icmiss = false;
+  m_uop_info.m_dcmiss = false;
+  m_uop_info.m_l2_miss = false;
+  m_num_child_uops = 0;
+  m_num_child_uops_done = 0;
+  m_child_uops = NULL;
+  m_parent_uop = NULL;
+  m_pending_child_uops = 0;
+  m_uncoalesced_flag = false;
+  m_last_uop = false;
+  m_req_sb = false;
+  m_req_lb = false;
+  m_req_int_reg = false;
+  m_req_fp_reg = false;
+  m_dcache_bank_id = 128;
+  m_bypass_llc = false;
+  m_skip_llc = false;
+  m_in_scheduler = false;
+  m_mem_version = 0;
+  m_state = OS_INVALID;
+
+  m_hmc_inst = HMC_NONE;
+  m_hmc_trans_id = 0;
+  m_dep_on_hmc_inst = false;
+
+  m_translated = false;  
+  can_really_retire = true;
+  retired = false;
+}
+
+uop_c& uop_c::operator=(const uop_c& other){
+  if (this != &other) {
+    m_uop_num = other.m_uop_num; 
+    m_unique_num = other.m_unique_num;
+    m_inst_num = other.m_inst_num;
+    m_thread_id = other.m_thread_id;
+    m_unique_thread_id = other.m_unique_thread_id;
+    m_orig_thread_id = other.m_orig_thread_id;
+    m_orig_block_id = other.m_orig_block_id;
+    m_block_id = other.m_block_id;
+    m_core_id = other.m_core_id;
+    m_pc = other.m_pc;
+    m_npc = other.m_npc;
+    m_opcode = other.m_opcode;
+    m_uop_type = other.m_uop_type;
+    m_cf_type = other.m_cf_type;
+    m_mem_type = other.m_mem_type;
+    m_bar_type = other.m_bar_type;
+    can_really_retire = other.can_really_retire;
+    retired = other.retired;
+
+    m_fetched_cycle = other.m_fetched_cycle;
+    m_bp_cycle = other.m_bp_cycle;
+    m_alloc_cycle = other.m_alloc_cycle;
+    m_sched_cycle = other.m_sched_cycle;
+    m_exec_cycle = other.m_exec_cycle;
+    m_done_cycle = other.m_done_cycle;
+    
+    m_num_srcs = other.m_num_srcs;
+    m_num_dests = other.m_num_dests;
+    m_vaddr = other.m_vaddr;
+    m_paddr = other.m_paddr;
+    m_mem_size = other.m_mem_size;
+    m_dir = other.m_dir;
+    for (int i = 0; i < MAX_SRCS; i++) {
+      m_src_info[i] = other.m_src_info[i];
+    }
+    for (int i = 0; i < MAX_UOP_SRC_DEPS; i++) {
+      m_map_src_info[i] = other.m_map_src_info[i];
+    }
+    m_src_uop_num = other.m_src_uop_num;
+    for (int i = 0; i < MAX_DESTS; i++) {
+      m_dest_info[i] = other.m_dest_info[i];
+    }
+    m_valid = other.m_valid;
+    m_bogus = other.m_bogus;
+    m_off_path = other.m_off_path;
+    m_mispredicted = other.m_mispredicted;
+    m_target_addr = other.m_target_addr;
+    m_active_mask = other.m_active_mask;
+    m_taken_mask = other.m_taken_mask;
+    m_reconverge_addr = other.m_reconverge_addr;
+    m_state = other.m_state;
+    m_rob_entry = other.m_rob_entry;
+    m_in_scheduler = other.m_in_scheduler;
+    m_allocq_num = other.m_allocq_num;
+    m_in_iaq = other.m_in_iaq;
+    m_last_dep_exec = other.m_last_dep_exec;
+    m_srcs_rdy = other.m_srcs_rdy;
+    m_uop_info = other.m_uop_info;
+    m_isitBOM = other.m_isitBOM;
+    m_isitEOM = other.m_isitEOM;
+    m_last_uop = other.m_last_uop;
+    m_recovery_info = other.m_recovery_info;
+    m_srcs_not_rdy_vector = other.m_srcs_not_rdy_vector;
+    m_num_child_uops = other.m_num_child_uops;
+    m_num_child_uops_done = other.m_num_child_uops_done;
+    m_child_uops = other.m_child_uops;
+    m_parent_uop = other.m_parent_uop;
+    m_pending_child_uops = other.m_pending_child_uops;
+    m_req = other.m_req;
+    m_uncoalesced_flag = other.m_uncoalesced_flag;
+    m_mem_start_cycle = other.m_mem_start_cycle;
+    m_req_sb = other.m_req_sb;
+    m_req_lb = other.m_req_lb;
+    m_req_int_reg = other.m_req_int_reg;
+    m_req_fp_reg = other.m_req_fp_reg;
+    m_dcache_bank_id = other.m_dcache_bank_id;
+    m_bypass_llc = other.m_bypass_llc;
+    m_skip_llc = other.m_skip_llc;
+    m_mem_version = other.m_mem_version;
+    m_translated = other.m_translated;
+    m_num_page_table_walks = other.m_num_page_table_walks;
+    m_hmc_inst = other.m_hmc_inst;
+    m_hmc_trans_id = other.m_hmc_trans_id;
+    m_dep_on_hmc_inst = other.m_dep_on_hmc_inst;
+    m_simBase = other.m_simBase;
+  }
+  return *this;
+}
+
+
+// initialize a new uop
+void uop_c::allocate() {
+  m_valid = true;
+  init();
+}
+
+// deallocate an uop
+uop_c *uop_c::free() {
+  m_uop_num = 0;
+  m_inst_num = 0;
+  m_valid = false;
+
+  if (((m_mem_type == MEM_ST) || (m_mem_type == MEM_ST_LM)) && m_simBase != nullptr) {
+    delete_store_hash_entry_wrapper(
+      m_simBase->m_core_pointers[m_core_id]->get_map(), this);
+  }
+  m_thread_id = -1;
+  m_unique_thread_id = -1;
+  m_orig_thread_id = -1;
+  m_dcache_bank_id = 128;
+  m_bypass_llc = false;
+  m_skip_llc = false;
+
+  return this;
+}
